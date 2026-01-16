@@ -1,0 +1,3 @@
+```bash
+tensorboard --logdir=runs/
+```
