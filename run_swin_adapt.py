@@ -43,7 +43,9 @@ else:
 args.device = device
 
 # Build job_name with user-specified model_name as prefix for easy identification
-job_name = args.model_name + '_channel_' + args.channel_mode + '_epoch_' + str(args.epoch) + '_link_qual_' + str(args.link_qual) + '_lpipsNet_' + args.lpips_net
+# Include lpips_lambda in the name to distinguish models with different LPIPS weights
+lpips_lambda_str = str(args.lpips_lambda).replace('.', '_')  # Replace . with _ for filename compatibility
+job_name = args.model_name + '_channel_' + args.channel_mode + '_epoch_' + str(args.epoch) + '_link_qual_' + str(args.link_qual) + '_lpipsNet_' + args.lpips_net + '_lpipsLambda_' + lpips_lambda_str
 
 print(args)
 print(job_name)
@@ -144,7 +146,7 @@ es = EarlyStopping(mode='min', min_delta=0, patience=args.train_patience)
 # Initialize LPIPS loss
 lpips_loss_fn = lpips.LPIPS(net=args.lpips_net).to(args.device)
 lpips_loss_fn.eval()  # Set to eval mode (no training for LPIPS)
-lpips_lambda = 0.5  # Weight for LPIPS loss component
+lpips_lambda = args.lpips_lambda  # Weight for LPIPS loss component
 
 ###### Dataloader
 train_loader = data.DataLoader(

@@ -72,9 +72,10 @@ def get_args():
 
     parser.add_argument('-val_batch_size', type=int, default  = 32)
     parser.add_argument('-lpips_net', type=str, default='alex', choices=['alex', 'vgg'], help='LPIPS network type')
+    parser.add_argument('-lpips_lambda', type=float, default=1.0, help='Weight for LPIPS loss component')
     parser.add_argument('-resume', default  = False)
     parser.add_argument('-path', default  = 'models/')
-    parser.add_argument('-device', default  = 'cuda:4')
+    parser.add_argument('-device', default  = 'cuda:3')
 
     # Computation-adaptive module switches
     parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'], 
