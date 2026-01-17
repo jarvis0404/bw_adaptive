@@ -6,6 +6,10 @@ def get_args():
     ################################
     parser = argparse.ArgumentParser()
 
+    # Model name/experiment identifier - required for distinguishing different models
+    parser.add_argument('-model_name', type=str, required=True,
+                        help='Model identifier/experiment name (required) - used to distinguish different model runs')
+
     parser.add_argument('-dataset', default  = 'cifar10')
 
     # The ViT setting
@@ -71,6 +75,12 @@ def get_args():
     parser.add_argument('-resume', default  = False)
     parser.add_argument('-path', default  = 'models/')
     parser.add_argument('-device', default  = 'cuda:4')
+
+    # Computation-adaptive module switches
+    parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'], 
+                        default=True, help='Enable encoder spatial pruning to reduce encoder computation (default: True)')
+    parser.add_argument('-use_decoder_early_exit', type=lambda x: x.lower() in ['true', '1', 'yes'],
+                        default=True, help='Enable decoder early exit heads to reduce decoder computation (default: True)')
 
     args = parser.parse_args()
 

@@ -171,7 +171,8 @@ class ComputationAdaptiveJSCC(nn.Module):
     """
     def __init__(self, args, encoder, decoder, bottleneck_channels, bottleneck_spatial,
                  img_size=(32, 32), early_exit_snr_thresholds=[15.0, 10.0],
-                 exit_loss_weights=[0.3, 0.3, 1.0], use_encoder_pruning=True):
+                 exit_loss_weights=[0.3, 0.3, 1.0], use_encoder_pruning=True,
+                 use_decoder_early_exit=True):
         super(ComputationAdaptiveJSCC, self).__init__()
 
         self.args = args
@@ -182,6 +183,7 @@ class ComputationAdaptiveJSCC(nn.Module):
         self.early_exit_snr_thresholds = early_exit_snr_thresholds
         self.exit_loss_weights = exit_loss_weights
         self.use_encoder_pruning = use_encoder_pruning
+        self.use_decoder_early_exit = use_decoder_early_exit
 
         # Module A: Encoder Spatial Pruning (reduces encoder computation)
         # Applied early in encoder (after patch_embed) to reduce computation
@@ -198,22 +200,28 @@ class ComputationAdaptiveJSCC(nn.Module):
         else:
             self.encoder_pruning = None
 
-        # Projection layers to feed early-exit heads (if used)
-        self.proj_exit1 = nn.Conv2d(bottleneck_channels, max(1, bottleneck_channels // 2), kernel_size=1)
-        self.proj_exit2 = nn.Conv2d(bottleneck_channels, max(1, bottleneck_channels // 4), kernel_size=1)
+        # Module B: Early Exit Heads (only if enabled)
+        if use_decoder_early_exit:
+            # Projection layers to feed early-exit heads
+            self.proj_exit1 = nn.Conv2d(bottleneck_channels, max(1, bottleneck_channels // 2), kernel_size=1)
+            self.proj_exit2 = nn.Conv2d(bottleneck_channels, max(1, bottleneck_channels // 4), kernel_size=1)
 
-        # Module B: Early Exit Heads
-        self.early_exit_1 = EarlyExitBlock(
-            in_channels=max(1, bottleneck_channels // 2),
-            out_channels=3,
-            img_size=img_size
-        )
+            self.early_exit_1 = EarlyExitBlock(
+                in_channels=max(1, bottleneck_channels // 2),
+                out_channels=3,
+                img_size=img_size
+            )
 
-        self.early_exit_2 = EarlyExitBlock(
-            in_channels=max(1, bottleneck_channels // 4),
-            out_channels=3,
-            img_size=img_size
-        )
+            self.early_exit_2 = EarlyExitBlock(
+                in_channels=max(1, bottleneck_channels // 4),
+                out_channels=3,
+                img_size=img_size
+            )
+        else:
+            self.proj_exit1 = None
+            self.proj_exit2 = None
+            self.early_exit_1 = None
+            self.early_exit_2 = None
 
         # embedding used for decoder compatibility (same shape as Swin_JSCC)
         self.linear_embed = nn.Linear(3, args.n_adapt_embed).to(self.device)
@@ -360,41 +368,55 @@ class ComputationAdaptiveJSCC(nn.Module):
         # prepare for decoder: (B, H_W_, n_feat)
         y = z_received.view(B, n_feat, H_enc * W_enc).permute(0, 2, 1).contiguous()
 
-        if self.training:
-            # Training: compute all exits for multi-exit loss
-            exit1_feat = self.proj_exit1(z_received)
-            exit2_feat = self.proj_exit2(z_received)
-            output_exit1 = self.early_exit_1(exit1_feat)
-            output_exit2 = self.early_exit_2(exit2_feat)
-            
-            # decode (do not forward SNR into decoder layers to preserve compatibility)
+        if self.use_decoder_early_exit:
+            if self.training:
+                # Training: compute all exits for multi-exit loss
+                exit1_feat = self.proj_exit1(z_received)
+                exit2_feat = self.proj_exit2(z_received)
+                output_exit1 = self.early_exit_1(exit1_feat)
+                output_exit2 = self.early_exit_2(exit2_feat)
+                
+                # decode (do not forward SNR into decoder layers to preserve compatibility)
+                output_final = self.decoder(y, adapt_embed, SNR=None, eta=None, out_conv=True)
+                
+                return {
+                    'output_final': output_final,
+                    'output_exit1': output_exit1,
+                    'output_exit2': output_exit2,
+                    'pruning_ratio': pruning_ratio,
+                    'mask': mask
+                }
+            else:
+                # Inference: choose exit based on SNR and only compute the selected one
+                # This truly reduces decoder computation
+                snr = self._get_snr(snr)
+                
+                if snr >= self.early_exit_snr_thresholds[0]:
+                    # High SNR: use early exit 1 (lightweight, no decoder computation)
+                    exit1_feat = self.proj_exit1(z_received)
+                    output_exit1 = self.early_exit_1(exit1_feat)
+                    return output_exit1
+                elif snr >= self.early_exit_snr_thresholds[1]:
+                    # Medium SNR: use early exit 2 (lightweight, no decoder computation)
+                    exit2_feat = self.proj_exit2(z_received)
+                    output_exit2 = self.early_exit_2(exit2_feat)
+                    return output_exit2
+                else:
+                    # Low SNR: use full decoder (most computation, but best quality)
+                    output_final = self.decoder(y, adapt_embed, SNR=None, eta=None, out_conv=True)
+                    return output_final
+        else:
+            # Early exit disabled: always use full decoder
             output_final = self.decoder(y, adapt_embed, SNR=None, eta=None, out_conv=True)
             
-            return {
-                'output_final': output_final,
-                'output_exit1': output_exit1,
-                'output_exit2': output_exit2,
-                'pruning_ratio': pruning_ratio,
-                'mask': mask
-            }
-        else:
-            # Inference: choose exit based on SNR and only compute the selected one
-            # This truly reduces decoder computation
-            snr = self._get_snr(snr)
-            
-            if snr >= self.early_exit_snr_thresholds[0]:
-                # High SNR: use early exit 1 (lightweight, no decoder computation)
-                exit1_feat = self.proj_exit1(z_received)
-                output_exit1 = self.early_exit_1(exit1_feat)
-                return output_exit1
-            elif snr >= self.early_exit_snr_thresholds[1]:
-                # Medium SNR: use early exit 2 (lightweight, no decoder computation)
-                exit2_feat = self.proj_exit2(z_received)
-                output_exit2 = self.early_exit_2(exit2_feat)
-                return output_exit2
+            if self.training:
+                # Return dict format for consistency, but without early exit outputs
+                return {
+                    'output_final': output_final,
+                    'pruning_ratio': pruning_ratio,
+                    'mask': mask
+                }
             else:
-                # Low SNR: use full decoder (most computation, but best quality)
-                output_final = self.decoder(y, adapt_embed, SNR=None, eta=None, out_conv=True)
                 return output_final
     
     def compute_loss(self, outputs, target, lpips_fn=None, lpips_weight=0.5):
@@ -411,43 +433,96 @@ class ComputationAdaptiveJSCC(nn.Module):
             total_loss: Weighted sum of exit losses
             loss_dict: Dictionary of individual losses
         """
-        w1, w2, w_final = self.exit_loss_weights
-        
-        # MSE losses
-        mse_exit1 = F.mse_loss(outputs['output_exit1'], target)
-        mse_exit2 = F.mse_loss(outputs['output_exit2'], target)
-        mse_final = F.mse_loss(outputs['output_final'], target)
-        
-        # LPIPS losses (optional)
-        if lpips_fn is not None:
-            target_norm = target * 2.0 - 1.0
+        if self.use_decoder_early_exit and 'output_exit1' in outputs and 'output_exit2' in outputs:
+            # Multi-exit loss
+            w1, w2, w_final = self.exit_loss_weights
             
-            exit1_norm = outputs['output_exit1'] * 2.0 - 1.0
-            exit2_norm = outputs['output_exit2'] * 2.0 - 1.0
-            final_norm = outputs['output_final'] * 2.0 - 1.0
+            # MSE losses
+            mse_exit1 = F.mse_loss(outputs['output_exit1'], target)
+            mse_exit2 = F.mse_loss(outputs['output_exit2'], target)
+            mse_final = F.mse_loss(outputs['output_final'], target)
             
-            # LPIPS needs gradients for training, so don't use torch.no_grad()
-            lpips_exit1 = lpips_fn(exit1_norm, target_norm).mean()
-            lpips_exit2 = lpips_fn(exit2_norm, target_norm).mean()
-            lpips_final = lpips_fn(final_norm, target_norm).mean()
+            # LPIPS losses (optional)
+            if lpips_fn is not None:
+                target_norm = target * 2.0 - 1.0
+                
+                exit1_norm = outputs['output_exit1'] * 2.0 - 1.0
+                exit2_norm = outputs['output_exit2'] * 2.0 - 1.0
+                final_norm = outputs['output_final'] * 2.0 - 1.0
+                
+                # LPIPS needs gradients for training, so don't use torch.no_grad()
+                lpips_exit1 = lpips_fn(exit1_norm, target_norm).mean()
+                lpips_exit2 = lpips_fn(exit2_norm, target_norm).mean()
+                lpips_final = lpips_fn(final_norm, target_norm).mean()
+                
+                loss_exit1 = mse_exit1 + lpips_weight * lpips_exit1
+                loss_exit2 = mse_exit2 + lpips_weight * lpips_exit2
+                loss_final = mse_final + lpips_weight * lpips_final
+            else:
+                loss_exit1 = mse_exit1
+                loss_exit2 = mse_exit2
+                loss_final = mse_final
             
-            loss_exit1 = mse_exit1 + lpips_weight * lpips_exit1
-            loss_exit2 = mse_exit2 + lpips_weight * lpips_exit2
-            loss_final = mse_final + lpips_weight * lpips_final
+            # Weighted total loss
+            total_loss = w1 * loss_exit1 + w2 * loss_exit2 + w_final * loss_final
+            
+            # Handle pruning_ratio: it might be a tensor or a float
+            pruning_ratio_val = 0.0
+            if 'pruning_ratio' in outputs:
+                pruning_ratio_val = outputs['pruning_ratio']
+                if isinstance(pruning_ratio_val, torch.Tensor):
+                    pruning_ratio_val = pruning_ratio_val.item()
+            
+            loss_dict = {
+                'loss_exit1': loss_exit1.item(),
+                'loss_exit2': loss_exit2.item(),
+                'loss_final': loss_final.item(),
+                'total_loss': total_loss.item(),
+                'pruning_ratio': pruning_ratio_val
+            }
+            # Add raw MSE and LPIPS values for magnitude comparison
+            if lpips_fn is not None:
+                loss_dict['mse_exit1'] = mse_exit1.item()
+                loss_dict['mse_exit2'] = mse_exit2.item()
+                loss_dict['mse_final'] = mse_final.item()
+                loss_dict['lpips_exit1'] = lpips_exit1.item()
+                loss_dict['lpips_exit2'] = lpips_exit2.item()
+                loss_dict['lpips_final'] = lpips_final.item()
+                # Calculate ratios to check magnitude alignment
+                loss_dict['mse_lpips_ratio_exit1'] = mse_exit1.item() / (lpips_exit1.item() + 1e-8)
+                loss_dict['mse_lpips_ratio_exit2'] = mse_exit2.item() / (lpips_exit2.item() + 1e-8)
+                loss_dict['mse_lpips_ratio_final'] = mse_final.item() / (lpips_final.item() + 1e-8)
         else:
-            loss_exit1 = mse_exit1
-            loss_exit2 = mse_exit2
-            loss_final = mse_final
-        
-        # Weighted total loss
-        total_loss = w1 * loss_exit1 + w2 * loss_exit2 + w_final * loss_final
-        
-        loss_dict = {
-            'loss_exit1': loss_exit1.item(),
-            'loss_exit2': loss_exit2.item(),
-            'loss_final': loss_final.item(),
-            'total_loss': total_loss.item(),
-            'pruning_ratio': outputs['pruning_ratio'].item()
-        }
+            # Single exit loss (early exit disabled)
+            mse_final = F.mse_loss(outputs['output_final'], target)
+            
+            if lpips_fn is not None:
+                target_norm = target * 2.0 - 1.0
+                final_norm = outputs['output_final'] * 2.0 - 1.0
+                lpips_final = lpips_fn(final_norm, target_norm).mean()
+                loss_final = mse_final + lpips_weight * lpips_final
+            else:
+                loss_final = mse_final
+            
+            total_loss = loss_final
+            
+            # Handle pruning_ratio: it might be a tensor or a float
+            pruning_ratio_val = 0.0
+            if 'pruning_ratio' in outputs:
+                pruning_ratio_val = outputs['pruning_ratio']
+                if isinstance(pruning_ratio_val, torch.Tensor):
+                    pruning_ratio_val = pruning_ratio_val.item()
+            
+            loss_dict = {
+                'loss_final': loss_final.item(),
+                'total_loss': total_loss.item(),
+                'pruning_ratio': pruning_ratio_val
+            }
+            # Add raw MSE and LPIPS values for magnitude comparison
+            if lpips_fn is not None:
+                loss_dict['mse_final'] = mse_final.item()
+                loss_dict['lpips_final'] = lpips_final.item()
+                # Calculate ratio to check magnitude alignment
+                loss_dict['mse_lpips_ratio_final'] = mse_final.item() / (lpips_final.item() + 1e-8)
         
         return total_loss, loss_dict

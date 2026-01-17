@@ -6,6 +6,8 @@ from tqdm import tqdm
 import torch.optim as optim
 import torch.optim.lr_scheduler as LS
 import lpips
+import os
+from datetime import datetime
 
 from get_args import get_args
 from swin_module_bw import *
@@ -40,12 +42,20 @@ else:
 
 args.device = device
 
-job_name = 'JSCC_swin_adapt_lr_' + args.channel_mode + '_epoch_' + str(args.epoch) + '_link_qual_' + str(args.link_qual) + '_' + args.lpips_net
+# Build job_name with user-specified model_name as prefix for easy identification
+job_name = args.model_name + '_channel_' + args.channel_mode + '_epoch_' + str(args.epoch) + '_link_qual_' + str(args.link_qual) + '_lpipsNet_' + args.lpips_net
 
 print(args)
 print(job_name)
 
-writter = SummaryWriter('runs/' + job_name)
+# Create date-based subdirectory for TensorBoard logs (similar to model saving)
+date_str = datetime.now().strftime('%Y%m%d')
+runs_dir = os.path.join('runs', date_str)
+if not os.path.exists(runs_dir):
+    print('Creating TensorBoard runs directory: {}'.format(runs_dir))
+    os.makedirs(runs_dir, exist_ok=True)
+
+writter = SummaryWriter(os.path.join(runs_dir, job_name))
 
 # Select dataset based on args.dataset
 def _build_imagenet_file_list(root_dir):
@@ -113,7 +123,12 @@ source_dec = Swin_Decoder(**dec_kwargs).to(args.device)
 # Wrap Swin encoder/decoder with SNR-adaptive wrapper
 bottleneck_channels = source_enc.max_trans_feat * source_enc.unit_trans_feat
 bottleneck_spatial = (source_enc.H, source_enc.W)
-jscc_model = ComputationAdaptiveJSCC(args, source_enc, source_dec, bottleneck_channels, bottleneck_spatial, img_size=(args.image_dims[0], args.image_dims[1])).to(args.device)
+jscc_model = ComputationAdaptiveJSCC(
+    args, source_enc, source_dec, bottleneck_channels, bottleneck_spatial, 
+    img_size=(args.image_dims[0], args.image_dims[1]),
+    use_encoder_pruning=args.use_encoder_pruning,
+    use_decoder_early_exit=args.use_decoder_early_exit
+).to(args.device)
 
 
 # load pre-trained
@@ -217,6 +232,12 @@ def train_epoch(loader, model, solvers, weight, lpips_fn, lpips_weight):
     model.train()
     lpips_fn.eval()  # Keep LPIPS in eval mode
 
+    # Statistics for magnitude comparison
+    mse_values = []
+    lpips_values = []
+    mse_lpips_ratios = []
+    batch_count = 0
+
     with tqdm(loader, unit='batch') as tepoch:
         for _, (images, _) in enumerate(tepoch):
             
@@ -239,9 +260,27 @@ def train_epoch(loader, model, solvers, weight, lpips_fn, lpips_weight):
                 solvers.step()
 
                 epoch_postfix['loss_final'] = '{:.4f}'.format(loss_dict['loss_final'])
-                epoch_postfix['loss_exit1'] = '{:.4f}'.format(loss_dict['loss_exit1'])
-                epoch_postfix['loss_exit2'] = '{:.4f}'.format(loss_dict['loss_exit2'])
+                if 'loss_exit1' in loss_dict:
+                    epoch_postfix['loss_exit1'] = '{:.4f}'.format(loss_dict['loss_exit1'])
+                if 'loss_exit2' in loss_dict:
+                    epoch_postfix['loss_exit2'] = '{:.4f}'.format(loss_dict['loss_exit2'])
                 epoch_postfix['total_loss'] = '{:.4f}'.format(loss.item())
+                
+                # Add MSE and LPIPS magnitude comparison info
+                if 'mse_final' in loss_dict and 'lpips_final' in loss_dict:
+                    mse_val = loss_dict['mse_final']
+                    lpips_val = loss_dict['lpips_final']
+                    ratio = loss_dict.get('mse_lpips_ratio_final', mse_val / (lpips_val + 1e-8))
+                    
+                    mse_values.append(mse_val)
+                    lpips_values.append(lpips_val)
+                    mse_lpips_ratios.append(ratio)
+                    
+                    # Show detailed comparison every 10 batches
+                    if batch_count % 10 == 0:
+                        epoch_postfix['mse_raw'] = '{:.6f}'.format(mse_val)
+                        epoch_postfix['lpips_raw'] = '{:.6f}'.format(lpips_val)
+                        epoch_postfix['mse/lpips'] = '{:.2f}'.format(ratio)
             else:
                 # legacy single-output path
                 output = outputs
@@ -256,11 +295,44 @@ def train_epoch(loader, model, solvers, weight, lpips_fn, lpips_weight):
                 loss.backward()
                 solvers.step()
 
-                epoch_postfix['mse_loss'] = '{:.4f}'.format(mse_loss.item())
-                epoch_postfix['lpips_loss'] = '{:.4f}'.format(lpips_loss.item())
-                epoch_postfix['total_loss'] = '{:.4f}'.format(loss.item())
+                mse_val = mse_loss.item()
+                lpips_val = lpips_loss.item()
+                ratio = mse_val / (lpips_val + 1e-8)
+                
+                mse_values.append(mse_val)
+                lpips_values.append(lpips_val)
+                mse_lpips_ratios.append(ratio)
 
+                epoch_postfix['mse_loss'] = '{:.4f}'.format(mse_val)
+                epoch_postfix['lpips_loss'] = '{:.4f}'.format(lpips_val)
+                epoch_postfix['total_loss'] = '{:.4f}'.format(loss.item())
+                
+                # Show detailed comparison every 10 batches
+                if batch_count % 10 == 0:
+                    epoch_postfix['mse_raw'] = '{:.6f}'.format(mse_val)
+                    epoch_postfix['lpips_raw'] = '{:.6f}'.format(lpips_val)
+                    epoch_postfix['mse/lpips'] = '{:.2f}'.format(ratio)
+
+            batch_count += 1
             tepoch.set_postfix(**epoch_postfix)
+    
+    # Print summary statistics at the end of epoch
+    if len(mse_values) > 0:
+        avg_mse = np.mean(mse_values)
+        avg_lpips = np.mean(lpips_values)
+        avg_ratio = np.mean(mse_lpips_ratios)
+        std_ratio = np.std(mse_lpips_ratios)
+        
+        print(f"\n[Loss Magnitude Analysis]")
+        print(f"  Average MSE: {avg_mse:.6f} (order of magnitude: {10**np.floor(np.log10(avg_mse + 1e-10)):.2e})")
+        print(f"  Average LPIPS: {avg_lpips:.6f} (order of magnitude: {10**np.floor(np.log10(avg_lpips + 1e-10)):.2e})")
+        print(f"  Average MSE/LPIPS ratio: {avg_ratio:.2f} ± {std_ratio:.2f}")
+        if abs(np.log10(avg_mse) - np.log10(avg_lpips)) < 1.0:
+            print(f"  ✓ MSE and LPIPS are in the SAME order of magnitude (difference < 1.0)")
+        else:
+            print(f"  ✗ MSE and LPIPS are in DIFFERENT orders of magnitude (difference >= 1.0)")
+            print(f"    Consider adjusting lpips_weight (current: {lpips_weight}) to balance the losses")
+        print()
 
 def validate_epoch(loader, model, bw = args.trg_trans_feat, disable = False, plr = None, lpips_fn = None):
 
