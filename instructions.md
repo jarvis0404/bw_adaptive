@@ -16,6 +16,18 @@ python run_swin_adapt.py \
     -use_decoder_early_exit False
 ```
 
+# 周日下午启动，增大模型参数量，loss的lambda为1，tmux session = 6
+python run_swin_adapt.py \
+    -model_name encoder_only_embed512_depth6_6 \
+    -epoch 200 \
+    -channel_mode awgn \
+    -link_qual 7.0 \
+    -lpips_lambda 1.0 \
+    -device cuda:1 \
+    -use_encoder_pruning True \
+    -use_decoder_early_exit False \
+    -embed_size 512
+
 python compare_traditional.py \
     -model_path models/JSCC_swin_adapt_lr_awgn_epoch_600_dataset_cifar10_link_qual_10.0_n_trans_feat_16_hidden_size_256_n_heads_8_n_layers_8_is_adapt_True_link_rng_3.0_min_trans_feat_1_max_trans_feat_6_unit_trans_feat_4_trg_trans_feat_6.pth \
     -dataset cifar10 \

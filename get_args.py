@@ -22,7 +22,7 @@ def get_args():
     
     # The Swin setting
     parser.add_argument('-image_dims', default  = [32, 32])
-    parser.add_argument('-depth', default  = [2, 4])
+    parser.add_argument('-depth', default  = [6, 6])
     parser.add_argument('-embed_size', type=int, default  = 256)
     parser.add_argument('-window_size', type=int, default  = 8)
     parser.add_argument('-mlp_ratio', type=float, default  = 4)
