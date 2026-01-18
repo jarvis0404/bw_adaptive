@@ -91,9 +91,10 @@ def reactive_params(nets):
     for p in nets:
         p.requires_grad = True
 
-def save_nets(job_name, nets, epoch):
+def save_nets(job_name, nets, epoch, date_str=None):
     # Save model under models/YYYYMMDD/<job_name>.pth for organized snapshots
-    date_str = datetime.now().strftime('%Y%m%d')
+    if date_str is None:
+        date_str = datetime.now().strftime('%Y%m%d')
     dirpath = os.path.join('models', date_str)
 
     if not os.path.exists(dirpath):

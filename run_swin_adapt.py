@@ -50,8 +50,11 @@ job_name = args.model_name + '_channel_' + args.channel_mode + '_epoch_' + str(a
 print(args)
 print(job_name)
 
+# Capture timestamp once at start of training (used for both models/ and runs/ directories)
+startup_time = datetime.now()
+date_str = startup_time.strftime('%Y%m%d')
+
 # Create date-based subdirectory for TensorBoard logs (similar to model saving)
-date_str = datetime.now().strftime('%Y%m%d')
 runs_dir = os.path.join('runs', date_str)
 if not os.path.exists(runs_dir):
     print('Creating TensorBoard runs directory: {}'.format(runs_dir))
@@ -496,7 +499,7 @@ if __name__ == '__main__':
             # TODO put this in trainer
             if bad_epochs == 0:
                 print('average l2_loss: ', valid_loss.item())
-                save_nets(job_name, jscc_model, epoch)
+                save_nets(job_name, jscc_model, epoch, date_str)
                 best_epoch = epoch
                 print('saving best net weights...')
             elif bad_epochs % 20 == 0:

@@ -495,7 +495,7 @@ def plot_bw_comparison(results, snr, output_dir):
             
             if values:
                 if method == 'model':
-                    label = 'DeepJSCC (Ours)'
+                    label = 'Model'
                     marker = 'o'
                     linestyle = '-'
                 elif method == 'bpg':
