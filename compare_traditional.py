@@ -41,7 +41,7 @@ from utils import as_img_array, calc_psnr, calc_ssim, load_weights, np_to_torch
 ##############################################################################
 
 def args_from_weights(weights_path: str, use_encoder_pruning: bool = None, 
-                       use_decoder_early_exit: bool = None) -> SimpleNamespace:
+                       use_decoder_early_exit: bool = None, embed_size: int = None) -> SimpleNamespace:
     """Parse hyperparameters from weight filename"""
     name = os.path.splitext(os.path.basename(weights_path))[0]
     tokens = name.split('_')
@@ -110,19 +110,22 @@ def args_from_weights(weights_path: str, use_encoder_pruning: bool = None,
         cfg['use_encoder_pruning'] = use_encoder_pruning
     if use_decoder_early_exit is not None:
         cfg['use_decoder_early_exit'] = use_decoder_early_exit
+    if embed_size is not None:
+        cfg['embed_size'] = embed_size
     
     return SimpleNamespace(**cfg)
 
 
 def build_model(device: torch.device, weights_path: str, 
-                use_encoder_pruning: bool = None, use_decoder_early_exit: bool = None):
+                use_encoder_pruning: bool = None, use_decoder_early_exit: bool = None,
+                embed_size: int = None):
     """
     Build and load model from weights path.
     
     Supports both Swin_JSCC and ComputationAdaptiveJSCC models.
     If use_encoder_pruning or use_decoder_early_exit is True, uses ComputationAdaptiveJSCC.
     """
-    base_args = args_from_weights(weights_path, use_encoder_pruning, use_decoder_early_exit)
+    base_args = args_from_weights(weights_path, use_encoder_pruning, use_decoder_early_exit, embed_size)
     base_args.device = device
 
     enc_kwargs = dict(
@@ -549,6 +552,7 @@ def main():
     parser.add_argument('-lpips_net', type=str, default='alex', choices=['alex', 'vgg'], help='LPIPS network')
     parser.add_argument('-num_workers', type=int, default=2, help='Number of dataloader workers')
     parser.add_argument('-max_samples', type=int, default=None, help='Maximum number of samples to evaluate (None = all)')
+    parser.add_argument('-embed_size', type=int, default=None, help='Embedding size (default: 256, must match training)')
     
     # Computation-adaptive module switches (must match training settings)
     parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'], 
@@ -580,7 +584,8 @@ def main():
     model, base_args = build_model(
         device, args.model_path,
         use_encoder_pruning=args.use_encoder_pruning,
-        use_decoder_early_exit=args.use_decoder_early_exit
+        use_decoder_early_exit=args.use_decoder_early_exit,
+        embed_size=args.embed_size
     )
     print(f'Model loaded successfully')
     print(f'  - channel_mode: {base_args.channel_mode}')

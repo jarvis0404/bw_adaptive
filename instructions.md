@@ -29,7 +29,7 @@ python run_swin_adapt.py \
     -embed_size 512
 
 python compare_traditional.py \
-    -model_path  models/20260118/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex.pth \
+    -model_path models/20260118/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex.pth \
     -dataset cifar10 \
     -device cuda:3 \
     -snr_min 5 -snr_max 15 -snr_step 2 \
@@ -37,8 +37,10 @@ python compare_traditional.py \
     -output_dir results \
     -use_encoder_pruning true \
     -use_decoder_early_exit false \
-    -max_samples 5
+    -max_samples 5 \
+    -output_dir results/pruning \
+    -embed_size 512
 
 python compare_models.py \
-  -json_paths results/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex_20260119_162934/results.json results/encoder_modified_2_0_channel_awgn_epoch_300_link_qual_7.0_lpipsNet_alex_lpipsLambda_1_0_20260119_162854/results.json \
-  -labels "lambda=0.5" "lambda=1.0" \
+  -json_paths results/no_pruning/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex_20260119_175310/results.json results/pruning/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex_20260119_175447/results.json \
+  -labels "no prouning" "pruning" \
