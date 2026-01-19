@@ -29,12 +29,16 @@ python run_swin_adapt.py \
     -embed_size 512
 
 python compare_traditional.py \
-    -model_path models/JSCC_swin_adapt_lr_awgn_epoch_600_dataset_cifar10_link_qual_10.0_n_trans_feat_16_hidden_size_256_n_heads_8_n_layers_8_is_adapt_True_link_rng_3.0_min_trans_feat_1_max_trans_feat_6_unit_trans_feat_4_trg_trans_feat_6.pth \
+    -model_path  models/20260118/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex.pth \
     -dataset cifar10 \
     -device cuda:3 \
     -snr_min 5 -snr_max 15 -snr_step 2 \
     -bw_min 1 -bw_max 6 \
     -output_dir results \
-    -use_encoder_pruning false \
+    -use_encoder_pruning true \
     -use_decoder_early_exit false \
     -max_samples 5
+
+python compare_models.py \
+  -json_paths results/encoder_modified_only_channel_awgn_epoch_200_link_qual_7.0_lpipsNet_alex_20260119_162934/results.json results/encoder_modified_2_0_channel_awgn_epoch_300_link_qual_7.0_lpipsNet_alex_lpipsLambda_1_0_20260119_162854/results.json \
+  -labels "lambda=0.5" "lambda=1.0" \

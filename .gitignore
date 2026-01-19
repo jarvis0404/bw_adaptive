@@ -3,3 +3,4 @@ models/
 lpips_outputs/
 __pycache__/
 results/
+multi_modal_comparison/

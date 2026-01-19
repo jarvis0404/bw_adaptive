@@ -27,6 +27,7 @@ import argparse
 from datetime import datetime
 from types import SimpleNamespace
 from shutil import which
+import json
 
 # Import from project modules
 from swin_module_bw import Swin_Encoder, Swin_Decoder, Swin_JSCC
@@ -763,6 +764,41 @@ def main():
             m = results[method][mid_bw][mid_snr]
             name = 'DeepJSCC' if method == 'model' else method.upper()
             print(f'  {name}: PSNR={m["psnr"]:.2f}, SSIM={m["ssim"]:.4f}, LPIPS={m["lpips"]:.4f}')
+    
+    # Save results to JSON
+    print('\nSaving results to JSON...')
+    json_output = {
+        'metadata': {
+            'model_path': args.model_path,
+            'model_name': model_name,
+            'dataset': args.dataset,
+            'timestamp': timestamp,
+            'channel_mode': base_args.channel_mode,
+            'link_qual': base_args.link_qual,
+            'max_trans_feat': base_args.max_trans_feat,
+            'use_encoder_pruning': args.use_encoder_pruning,
+            'use_decoder_early_exit': args.use_decoder_early_exit,
+            'snr_range': {'min': args.snr_min, 'max': args.snr_max, 'step': args.snr_step},
+            'bw_range': {'min': args.bw_min, 'max': args.bw_max},
+            'num_samples': sample_count,
+            'lpips_net': args.lpips_net,
+        },
+        'results': {
+            method: {
+                str(bw): {
+                    str(snr): metrics
+                    for snr, metrics in snr_dict.items()
+                }
+                for bw, snr_dict in bw_dict.items()
+            }
+            for method, bw_dict in results.items()
+        }
+    }
+    
+    json_path = os.path.join(output_dir, 'results.json')
+    with open(json_path, 'w') as f:
+        json.dump(json_output, f, indent=2)
+    print(f'Results saved to {json_path}')
 
 
 if __name__ == '__main__':
