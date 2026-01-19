@@ -281,11 +281,9 @@ def train_epoch(loader, model, solvers, weight, lpips_fn, lpips_weight):
                     lpips_values.append(lpips_val)
                     mse_lpips_ratios.append(ratio)
                     
-                    # Show detailed comparison every 10 batches
-                    if batch_count % 10 == 0:
-                        epoch_postfix['mse_raw'] = '{:.6f}'.format(mse_val)
-                        epoch_postfix['lpips_raw'] = '{:.6f}'.format(lpips_val)
-                        epoch_postfix['mse/lpips'] = '{:.2f}'.format(ratio)
+                    epoch_postfix['mse_raw'] = '{:.6f}'.format(mse_val)
+                    epoch_postfix['lpips_raw'] = '{:.6f}'.format(lpips_val)
+                    epoch_postfix['mse/lpips'] = '{:.2f}'.format(ratio)
             else:
                 # legacy single-output path
                 output = outputs

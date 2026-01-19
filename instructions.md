@@ -18,12 +18,12 @@ python run_swin_adapt.py \
 
 # 周日下午启动，增大模型参数量，loss的lambda为1，tmux session = 6
 python run_swin_adapt.py \
-    -model_name encoder_only_embed512_depth6_6 \
+    -model_name embed512_encoderModified \
     -epoch 200 \
     -channel_mode awgn \
     -link_qual 7.0 \
     -lpips_lambda 1.0 \
-    -device cuda:1 \
+    -device cuda:3 \
     -use_encoder_pruning True \
     -use_decoder_early_exit False \
     -embed_size 512
@@ -38,7 +38,7 @@ python compare_traditional.py \
     -use_encoder_pruning true \
     -use_decoder_early_exit false \
     -max_samples 5 \
-    -output_dir results/pruning \
+    -output_dir results \
     -embed_size 512
 
 python compare_models.py \
