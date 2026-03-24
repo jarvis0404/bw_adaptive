@@ -129,10 +129,9 @@ source_dec = Swin_Decoder(**dec_kwargs).to(args.device)
 bottleneck_channels = source_enc.max_trans_feat * source_enc.unit_trans_feat
 bottleneck_spatial = (source_enc.H, source_enc.W)
 jscc_model = ComputationAdaptiveJSCC(
-    args, source_enc, source_dec, bottleneck_channels, bottleneck_spatial, 
+    args, source_enc, source_dec, bottleneck_channels, bottleneck_spatial,
     img_size=(args.image_dims[0], args.image_dims[1]),
-    use_encoder_pruning=args.use_encoder_pruning,
-    use_decoder_early_exit=args.use_decoder_early_exit
+    use_encoder_pruning=args.use_encoder_pruning
 ).to(args.device)
 
 
@@ -265,10 +264,6 @@ def train_epoch(loader, model, solvers, weight, lpips_fn, lpips_weight):
                 solvers.step()
 
                 epoch_postfix['loss_final'] = '{:.4f}'.format(loss_dict['loss_final'])
-                if 'loss_exit1' in loss_dict:
-                    epoch_postfix['loss_exit1'] = '{:.4f}'.format(loss_dict['loss_exit1'])
-                if 'loss_exit2' in loss_dict:
-                    epoch_postfix['loss_exit2'] = '{:.4f}'.format(loss_dict['loss_exit2'])
                 epoch_postfix['total_loss'] = '{:.4f}'.format(loss.item())
                 
                 # Add MSE and LPIPS magnitude comparison info

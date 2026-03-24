@@ -12,8 +12,7 @@ python run_swin_adapt.py \
     -link_qual 7.0 \
     -lpips_lambda 1.0 \
     -device cuda:3 \
-    -use_encoder_pruning True \
-    -use_decoder_early_exit False
+    -use_encoder_pruning True
 ```
 
 # 周日下午启动，增大模型参数量，loss的lambda为1，tmux session = 6
@@ -25,7 +24,6 @@ python run_swin_adapt.py \
     -lpips_lambda 1.0 \
     -device cuda:3 \
     -use_encoder_pruning True \
-    -use_decoder_early_exit False \
     -embed_size 512
 
 python compare_traditional.py \
@@ -36,7 +34,6 @@ python compare_traditional.py \
     -bw_min 1 -bw_max 6 \
     -output_dir results \
     -use_encoder_pruning true \
-    -use_decoder_early_exit false \
     -max_samples 5 \
     -output_dir results \
     -embed_size 512

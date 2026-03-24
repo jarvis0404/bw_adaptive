@@ -78,10 +78,8 @@ def get_args():
     parser.add_argument('-device', default  = 'cuda:3')
 
     # Computation-adaptive module switches
-    parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'], 
+    parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'],
                         default=True, help='Enable encoder spatial pruning to reduce encoder computation (default: True)')
-    parser.add_argument('-use_decoder_early_exit', type=lambda x: x.lower() in ['true', '1', 'yes'],
-                        default=True, help='Enable decoder early exit heads to reduce decoder computation (default: True)')
 
     args = parser.parse_args()
 

@@ -40,8 +40,8 @@ from utils import as_img_array, calc_psnr, calc_ssim, load_weights, np_to_torch
 # Helper Functions (from evaluate.py)
 ##############################################################################
 
-def args_from_weights(weights_path: str, use_encoder_pruning: bool = None, 
-                       use_decoder_early_exit: bool = None, embed_size: int = None) -> SimpleNamespace:
+def args_from_weights(weights_path: str, use_encoder_pruning: bool = None,
+                       embed_size: int = None) -> SimpleNamespace:
     """Parse hyperparameters from weight filename"""
     name = os.path.splitext(os.path.basename(weights_path))[0]
     tokens = name.split('_')
@@ -66,7 +66,6 @@ def args_from_weights(weights_path: str, use_encoder_pruning: bool = None,
         'unit_trans_feat': 4,
         'n_adapt_embed': 2,
         'use_encoder_pruning': False,  # Default to False for backward compatibility
-        'use_decoder_early_exit': False,
     }
 
     parsed = {}
@@ -108,24 +107,22 @@ def args_from_weights(weights_path: str, use_encoder_pruning: bool = None,
     # Override with explicit arguments if provided
     if use_encoder_pruning is not None:
         cfg['use_encoder_pruning'] = use_encoder_pruning
-    if use_decoder_early_exit is not None:
-        cfg['use_decoder_early_exit'] = use_decoder_early_exit
     if embed_size is not None:
         cfg['embed_size'] = embed_size
     
     return SimpleNamespace(**cfg)
 
 
-def build_model(device: torch.device, weights_path: str, 
-                use_encoder_pruning: bool = None, use_decoder_early_exit: bool = None,
+def build_model(device: torch.device, weights_path: str,
+                use_encoder_pruning: bool = None,
                 embed_size: int = None):
     """
     Build and load model from weights path.
-    
+
     Supports both Swin_JSCC and ComputationAdaptiveJSCC models.
-    If use_encoder_pruning or use_decoder_early_exit is True, uses ComputationAdaptiveJSCC.
+    If use_encoder_pruning is True, uses ComputationAdaptiveJSCC.
     """
-    base_args = args_from_weights(weights_path, use_encoder_pruning, use_decoder_early_exit, embed_size)
+    base_args = args_from_weights(weights_path, use_encoder_pruning, embed_size)
     base_args.device = device
 
     enc_kwargs = dict(
@@ -160,8 +157,8 @@ def build_model(device: torch.device, weights_path: str,
     decoder = Swin_Decoder(**dec_kwargs).to(device)
     
     # Determine which model type to use
-    use_adaptive = base_args.use_encoder_pruning or base_args.use_decoder_early_exit
-    
+    use_adaptive = base_args.use_encoder_pruning
+
     if use_adaptive:
         # Use ComputationAdaptiveJSCC
         bottleneck_channels = encoder.max_trans_feat * encoder.unit_trans_feat
@@ -169,8 +166,7 @@ def build_model(device: torch.device, weights_path: str,
         model = ComputationAdaptiveJSCC(
             base_args, encoder, decoder, bottleneck_channels, bottleneck_spatial,
             img_size=(base_args.image_dims[0], base_args.image_dims[1]),
-            use_encoder_pruning=base_args.use_encoder_pruning,
-            use_decoder_early_exit=base_args.use_decoder_early_exit
+            use_encoder_pruning=base_args.use_encoder_pruning
         ).to(device)
         model_type = 'ComputationAdaptiveJSCC'
     else:
@@ -185,8 +181,7 @@ def build_model(device: torch.device, weights_path: str,
     model.eval()
     print(f'  Model type: {model_type}')
     print(f'  use_encoder_pruning: {base_args.use_encoder_pruning}')
-    print(f'  use_decoder_early_exit: {base_args.use_decoder_early_exit}')
-    
+
     return model, base_args
 
 
@@ -555,11 +550,9 @@ def main():
     parser.add_argument('-embed_size', type=int, default=None, help='Embedding size (default: 256, must match training)')
     
     # Computation-adaptive module switches (must match training settings)
-    parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'], 
+    parser.add_argument('-use_encoder_pruning', type=lambda x: x.lower() in ['true', '1', 'yes'],
                         default=False, help='Use encoder spatial pruning (must match training)')
-    parser.add_argument('-use_decoder_early_exit', type=lambda x: x.lower() in ['true', '1', 'yes'],
-                        default=False, help='Use decoder early exit (must match training)')
-    
+
     args = parser.parse_args()
     
     # Setup device
@@ -584,7 +577,6 @@ def main():
     model, base_args = build_model(
         device, args.model_path,
         use_encoder_pruning=args.use_encoder_pruning,
-        use_decoder_early_exit=args.use_decoder_early_exit,
         embed_size=args.embed_size
     )
     print(f'Model loaded successfully')
@@ -782,7 +774,6 @@ def main():
             'link_qual': base_args.link_qual,
             'max_trans_feat': base_args.max_trans_feat,
             'use_encoder_pruning': args.use_encoder_pruning,
-            'use_decoder_early_exit': args.use_decoder_early_exit,
             'snr_range': {'min': args.snr_min, 'max': args.snr_max, 'step': args.snr_step},
             'bw_range': {'min': args.bw_min, 'max': args.bw_max},
             'num_samples': sample_count,
